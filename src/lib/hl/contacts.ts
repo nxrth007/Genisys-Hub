@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import type { HlContact, Prisma } from '@/generated/prisma/client'
 import { splitName, toE164 } from './phone'
+import { notifyInbox } from './push'
 
 /**
  * Contacts: found by phone, then email, within the sub-account, so a lead
@@ -100,16 +101,20 @@ export async function upsertContact(accountId: string, input: ContactInput): Pro
 /**
  * A line in the contact's conversation that isn't a text or call ("Submitted
  * Website Quote Form"). It moves the conversation to the top of the inbox.
+ * Unread, it also buzzes the phones of everyone on the sub-account
+ * (src/lib/hl/push.ts), unless `notify` is false: something the team did
+ * themselves, like booking from the calendar.
  */
-export async function logActivity(accountId: string, contactId: string, body: string, meta: Record<string, unknown> = {}, unread = true): Promise<void> {
+export async function logActivity(accountId: string, contactId: string, body: string, meta: Record<string, unknown> = {}, unread = true, notify = unread): Promise<void> {
   const now = new Date()
   await prisma.hlMessage.create({
     data: { accountId, contactId, direction: 'inbound', channel: 'activity', status: 'logged', body, meta: meta as Prisma.InputJsonValue },
   })
-  await prisma.hlContact.update({
+  const contact = await prisma.hlContact.update({
     where: { id: contactId },
     data: { lastMessageAt: now, lastMessage: body.slice(0, 200), ...(unread ? { unread: { increment: 1 } } : {}) },
   })
+  if (unread && notify) notifyInbox(contact, 'activity', body)
 }
 
 /** Add tags; returns the ones that weren't there yet (for the tag_added trigger). */

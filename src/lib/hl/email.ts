@@ -7,6 +7,7 @@ import { dnsProvider, resolve } from './dns-lookup'
 import { HlInputError } from './http'
 import { createDomain, createRoute, deleteDomain, deleteRoute, ensureEventWebhook, getDomain, mailgunStatus, MailgunError, sendMailgun, verifyDomain, type MailgunDomain, type MailgunRecord } from './mailgun'
 import { createRecord, deleteRecord, dnsRecords, getNameservers } from './porkbun'
+import { notifyInbox } from './push'
 import { publicBase } from './twilio'
 
 /**
@@ -266,10 +267,12 @@ const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i
 const quoteName = (s: string) => `"${s.replace(/["\\\r\n]/g, '').trim()}"`
 
 async function touch(contactId: string, preview: string, unread = false) {
-  await prisma.hlContact.update({
+  const contact = await prisma.hlContact.update({
     where: { id: contactId },
     data: { lastMessageAt: new Date(), lastMessage: preview.slice(0, 200), ...(unread ? { unread: { increment: 1 } } : {}) },
   })
+  // A lead's email: the phones buzz too (src/lib/hl/push.ts).
+  if (unread) notifyInbox(contact, 'email', preview)
 }
 
 const secret = () => process.env.AUTH_SECRET || 'genisys-hub'

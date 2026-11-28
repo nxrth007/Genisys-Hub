@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { fireTrigger } from './automation'
 import { upsertContact } from './contacts'
+import { notifyInbox } from './push'
 import { HOOKS, hookUrl, xml } from './twilio'
 
 /**
@@ -110,7 +111,8 @@ async function markMissed(messageId: string, accountId: string, contactId: strin
   // Once per call, however many times Twilio retries a webhook.
   const flipped = await prisma.hlMessage.updateMany({ where: { id: messageId, status: { not: 'missed' } }, data: { status: 'missed', body: 'Missed call' } })
   if (!flipped.count) return
-  await prisma.hlContact.update({ where: { id: contactId }, data: { lastMessageAt: new Date(), lastMessage: 'Missed call', unread: { increment: 1 } } })
+  const contact = await prisma.hlContact.update({ where: { id: contactId }, data: { lastMessageAt: new Date(), lastMessage: 'Missed call', unread: { increment: 1 } } })
+  notifyInbox(contact, 'missed_call', 'Missed call')
   const row = await callRow(messageId)
   const call = { from: row?.from ?? null, to: row?.to ?? null, why }
   if (created) await fireTrigger(accountId, contactId, { type: 'contact_created', context: { call } })

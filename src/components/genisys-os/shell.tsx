@@ -16,6 +16,7 @@ import { ConfirmHost } from './confirm'
 import { ViewerContext, type HlViewer } from './viewer'
 import { MobileDrawer, MobileTabBar, MobileTopBar } from './mobile-nav'
 import { InstallHint, PhoneAppEffects, PhoneAppWorker } from './phone-app'
+import { NotifyCard, NotifySwitch, forgetThisDevice, useAppBadge } from './notifications'
 
 /** A section as a sub-account login sees it: only their tabs (null when it isn't theirs). */
 function memberSection(s: Section): Section | null {
@@ -106,6 +107,8 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
   // GoHighLevel-import lists only show where an import filled them (Lead Genisys).
   const imported = !!current?.ghlLocationId
   const title = section?.label ?? (accountId ? '' : agencyTitle(pathname))
+  // The number on a contractor's home-screen icon: their conversations waiting (staff see every client, so none).
+  useAppBadge(viewer.admin || !accounts.data ? null : accounts.data.accounts.reduce((n, a) => n + a.unread, 0))
 
   return (
     <div className="gos-app fixed inset-0 flex overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
@@ -152,8 +155,13 @@ export function HellShell({ children, viewer }: { children: React.ReactNode; vie
           </Suspense>
         )}
         <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-          {/* Where a contractor lands after signing in: how to put the app on their home screen (phones only, until done or hidden). */}
-          {base && sectionKey === 'dashboard' && <InstallHint />}
+          {/* Where a contractor lands after signing in: how to put the app on their home screen, then to turn on notifications (phones only, until done or hidden). */}
+          {base && sectionKey === 'dashboard' && (
+            <>
+              <InstallHint />
+              <NotifyCard accountId={accountId!} staff={viewer.admin} />
+            </>
+          )}
           <ViewerContext.Provider value={viewer}>{children}</ViewerContext.Provider>
         </main>
         {base && (
@@ -227,6 +235,8 @@ function SidebarBody({ viewer, roomy }: { viewer: HlViewer; roomy?: boolean }) {
 
       {viewer.admin ? (
         <div className="flex flex-col gap-px border-t border-border-soft px-3 py-3">
+          {/* Staff choose, client by client, whose leads buzz this device. */}
+          {base && accountId && <NotifySwitch accountId={accountId} accountName={current?.name ?? null} staff roomy={roomy} />}
           {base ? (
             <NavLink href={`${base}/settings`} label={SETTINGS_SECTION.label} icon={SETTINGS_SECTION.icon} active={sectionKey === 'settings'} roomy={roomy} />
           ) : (
@@ -241,7 +251,13 @@ function SidebarBody({ viewer, roomy }: { viewer: HlViewer; roomy?: boolean }) {
           </Link>
         </div>
       ) : (
-        <div className="flex items-center gap-2.5 border-t border-border-soft px-4 py-3">
+        <div className="border-t border-border-soft">
+        {accountId && (
+          <div className="px-1.5 pt-2">
+            <NotifySwitch accountId={accountId} accountName={current?.name ?? null} staff={false} roomy={roomy} />
+          </div>
+        )}
+        <div className="flex items-center gap-2.5 px-4 py-3">
           <Avatar name={viewer.name || viewer.email} size={roomy ? 32 : 26} />
           <span className="min-w-0 flex-1">
             <span className={cn('block truncate font-medium text-foreground', roomy ? 'text-[14px]' : 'text-[12.5px]')}>{viewer.name || viewer.email}</span>
@@ -249,13 +265,15 @@ function SidebarBody({ viewer, roomy }: { viewer: HlViewer; roomy?: boolean }) {
           </span>
           <button
             type="button"
-            onClick={() => void signOut({ callbackUrl: '/login' })}
+            // The phone stops getting this login's notifications first: the next person to sign in on it shouldn't see these leads.
+            onClick={() => void forgetThisDevice().finally(() => signOut({ callbackUrl: '/login' }))}
             className={cn('grid shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[0.06] hover:text-foreground', roomy ? 'h-11 w-11' : 'h-8 w-8')}
             title="Sign out"
             aria-label="Sign out"
           >
             <LogOut className="h-[15px] w-[15px]" strokeWidth={1.75} />
           </button>
+        </div>
         </div>
       )}
     </>

@@ -159,7 +159,8 @@ export async function createAppointment(accountId: string, input: StaffAppointme
     },
     { timeout: 30_000 },
   )
-  await logActivity(accountId, contactId, `Booked ${calendar!.name.trim()} (by ${by})\n${appointmentTimes({ startTime: row.startTime, timezone: tz }).full}${row.assignedTo ? ` with ${row.assignedTo}` : ''}${notes ? `\nNotes: ${notes}` : ''}${seriesNote(series, tz)}`, { appointmentId: row.id })
+  // The team booked it themselves: no notification to their own phones.
+  await logActivity(accountId, contactId, `Booked ${calendar!.name.trim()} (by ${by})\n${appointmentTimes({ startTime: row.startTime, timezone: tz }).full}${row.assignedTo ? ` with ${row.assignedTo}` : ''}${notes ? `\nNotes: ${notes}` : ''}${seriesNote(series, tz)}`, { appointmentId: row.id }, true, false)
   return { appointmentId: row.id, contactId, created, calendarId: calendar!.id, kind, series }
 }
 
@@ -218,7 +219,7 @@ export async function updateAppointment(accountId: string, id: string, input: St
   const moved = !block && !!data.startTime && (data.startTime as Date).getTime() !== a.startTime.getTime()
   if (moved && a.contactId) {
     const tz = (await prisma.hlAccount.findUniqueOrThrow({ where: { id: accountId }, select: { timezone: true } })).timezone
-    await logActivity(accountId, a.contactId, `Rescheduled ${a.calendar?.name.trim() ?? 'appointment'} (by ${by})\nfrom ${appointmentTimes({ startTime: a.startTime, timezone: tz }).full}\nto ${appointmentTimes({ startTime: data.startTime as Date, timezone: tz }).full}`, { appointmentId: id })
+    await logActivity(accountId, a.contactId, `Rescheduled ${a.calendar?.name.trim() ?? 'appointment'} (by ${by})\nfrom ${appointmentTimes({ startTime: a.startTime, timezone: tz }).full}\nto ${appointmentTimes({ startTime: data.startTime as Date, timezone: tz }).full}`, { appointmentId: id }, true, false)
   }
   // Status last: it logs and fires its own automations.
   let statusChanged: string | null = null

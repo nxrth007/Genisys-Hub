@@ -126,6 +126,8 @@ model User {
   documentsUploaded   Document[]          @relation("DocumentUploader")
   /// Hell-level sub-accounts this login can open (role "hl_user": a contractor or their staff).
   hlMemberships       HlMember[]
+  /// Phones and browsers this person turned Genisys OS notifications on in.
+  hlPushSubscriptions HlPushSubscription[]
   documentFoldersCreated DocumentFolder[] @relation("DocumentFolderCreator")
   followUpDismissals  FollowUpDismissal[] @relation("FollowUpDismissals")
   appointmentEdits    AppointmentEditLog[] @relation("AppointmentEditor")
@@ -2656,6 +2658,32 @@ model HlMember {
   createdAt   DateTime  @default(now())
 
   @@unique([accountId, userId])
+  @@index([userId])
+}
+
+/// A phone or browser that gets Genisys OS notifications (Web Push) when
+/// something new lands in Conversations: a lead's text, a website form or chat,
+/// a missed call (src/lib/hl/push.ts). A contractor's covers every sub-account
+/// they're on; a Genisys staff member's covers only the sub-accounts they chose
+/// to follow on that device (accountIds).
+model HlPushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The push service's address for this browser (Google, Apple, Mozilla or Microsoft). One row per device.
+  endpoint   String    @unique
+  /// The browser's keys the message is encrypted to (RFC 8291).
+  p256dh     String
+  auth       String
+  /// Genisys staff: the sub-accounts followed on this device. Empty for a contractor: all of theirs.
+  accountIds String[]  @default([])
+  userAgent  String?
+  /// Sends that failed in a row; at 5 the device is dropped (a 404/410 drops it at once).
+  failures   Int       @default(0)
+  lastSentAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
   @@index([userId])
 }
 

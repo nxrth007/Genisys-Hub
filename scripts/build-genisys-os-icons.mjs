@@ -7,8 +7,9 @@
  *   - maskable: full-bleed, the G inside the middle 80% (Android crops it to its own shape)
  *   - apple: full-bleed square at 180px (iOS rounds the corners itself)
  *
- * Writes public/icons/genisys-os-{192,512}.png, public/icons/genisys-os-maskable-512.png
- * and the apple-icon.png that src/app/genisys-os and src/app/login use instead of the Hub's.
+ * Writes public/icons/genisys-os-{192,512}.png, public/icons/genisys-os-maskable-512.png, the
+ * notification badge public/icons/genisys-os-badge.png (white on transparent), and the
+ * apple-icon.png that src/app/genisys-os and src/app/login use instead of the Hub's.
  *
  * Run from the repo: node scripts/build-genisys-os-icons.mjs
  */
@@ -37,12 +38,15 @@ const svg = {
   // 0.58: the G's outer corner stays inside the 40% circle Android keeps whatever shape it crops to.
   maskable: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${background}<rect width="512" height="512" fill="url(#bg)"/>${g(0.58)}</svg>`,
   apple: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${background}<rect width="512" height="512" fill="url(#bg)"/>${g(0.92)}</svg>`,
+  // Android's status bar shows a notification's badge as a white shape: just the G, on nothing.
+  badge: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${g(1.35)}</svg>`,
 }
 
 const out = [
   ['public/icons/genisys-os-192.png', svg.rounded, 192],
   ['public/icons/genisys-os-512.png', svg.rounded, 512],
   ['public/icons/genisys-os-maskable-512.png', svg.maskable, 512],
+  ['public/icons/genisys-os-badge.png', svg.badge, 96],
   ['src/app/genisys-os/apple-icon.png', svg.apple, 180],
   ['src/app/login/apple-icon.png', svg.apple, 180],
 ]

@@ -7,6 +7,7 @@ import { upsertContact } from './contacts'
 import { sendTwilioSms } from './twilio'
 import { genisysSender } from './genisys-sender'
 import { noteOwnerAlert } from './owner-alerts'
+import { notifyInbox } from './push'
 
 /**
  * Texts and emails. Texts to contacts go out from the sub-account's own
@@ -46,10 +47,12 @@ export function textingReady(n: Pick<HlPhoneNumber, 'kind' | 'verificationStatus
 const OPT_OUT = 'Reply STOP to opt out.'
 
 async function touch(contactId: string, preview: string, unread = false) {
-  await prisma.hlContact.update({
+  const contact = await prisma.hlContact.update({
     where: { id: contactId },
     data: { lastMessageAt: new Date(), lastMessage: preview.slice(0, 200), ...(unread ? { unread: { increment: 1 } } : {}) },
   })
+  // A lead's text: the phones of everyone on the sub-account buzz (src/lib/hl/push.ts).
+  if (unread) notifyInbox(contact, 'sms', preview)
 }
 
 /**

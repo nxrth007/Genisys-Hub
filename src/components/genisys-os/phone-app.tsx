@@ -46,14 +46,14 @@ export function usePhoneWidth(): boolean {
 }
 
 /** Opened from the home screen, not in a browser tab. */
-function useStandalone(): boolean {
+export function useStandalone(): boolean {
   const display = useSyncExternalStore(standaloneMode.subscribe, standaloneMode.get, () => false)
   // iPhones before iOS 16.4 only say so here.
   const ios = useSyncExternalStore(never, () => (navigator as Navigator & { standalone?: boolean }).standalone === true, () => false)
   return display || ios
 }
 
-const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+export const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 
 /** Fields that bring up the keyboard (not checkboxes, pickers or buttons). */
 function typesText(el: Element | null): boolean {
@@ -143,15 +143,21 @@ const dismissedStore = {
 
 type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
 
+/** Is the "put it on your home screen" card up? (The notifications card waits for it: one card at a time.) */
+export function useInstallCardShowing(): boolean {
+  const touch = useTouchScreen()
+  const standalone = useStandalone()
+  const dismissed = useSyncExternalStore(dismissedStore.subscribe, dismissedStore.get, () => true)
+  return touch && !standalone && !dismissed
+}
+
 /**
  * "Put Genisys OS on your home screen", on a phone's browser until it's installed or waved away:
  * Chrome on Android gets an Install button (its own prompt), iPhones the Share → Add to Home Screen
  * steps (Safari has no prompt to offer).
  */
 export function InstallHint() {
-  const touch = useTouchScreen()
-  const standalone = useStandalone()
-  const dismissed = useSyncExternalStore(dismissedStore.subscribe, dismissedStore.get, () => true)
+  const showing = useInstallCardShowing()
   const ios = useSyncExternalStore(never, isIos, () => false)
   const [prompt, setPrompt] = useState<InstallPrompt | null>(null)
 
@@ -180,7 +186,7 @@ export function InstallHint() {
     window.dispatchEvent(new Event(DISMISSED_KEY))
   }
 
-  if (!touch || standalone || dismissed) return null
+  if (!showing) return null
   return (
     <div className="mx-3 mt-3 flex items-start gap-3 rounded-xl border border-border bg-card px-3.5 py-3 md:hidden">
       {/* eslint-disable-next-line @next/next/no-img-element -- a fixed 40px icon from public/ */}
@@ -192,7 +198,8 @@ export function InstallHint() {
             'It opens full screen like an app, one tap from your home screen.'
           ) : ios ? (
             <>
-              In Safari, tap Share <Share className="inline h-3.5 w-3.5 -translate-y-px" aria-label="the Share button" />, then <b className="font-medium text-foreground/90">Add to Home Screen</b>.
+              In Safari, tap Share <Share className="inline h-3.5 w-3.5 -translate-y-px" aria-label="the Share button" />, then <b className="font-medium text-foreground/90">Add to Home Screen</b>. Opened from there, it can
+              notify you when a lead texts.
             </>
           ) : (
             <>
